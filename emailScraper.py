@@ -2,11 +2,11 @@
 # 2. Turn on 2FA
 # 3. Go to https://myaccount.google.com/apppasswords
 # 4. Enter App name and get the 16 digit key
-# 5. Update EMAIL_USER     = os.getenv("EMAIL_USER", "rahul6768696867@gmail.com")
-#           EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "qtbd nueg cvml lrcq")
-# 6. Run python3 repo/backend/app.py  and then python3 repo/scrapping/emailScraper.py
-# 7. The [✗] Backend returned 403 error is expected for now because the backend server isn't running yet; 
-#    however, the successful parsing in the terminal proves the scraper itself is working.
+# 5. Update EMAIL_USER     = os.getenv("EMAIL_USER", "your@gmail.com")
+#           EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "xxxx xxxx xxxx xxxx")
+# 6. Make sure mail forwarding is on in outlook
+# 7. Run python3 emailScraper.py
+# 8. The [✗] error is expected for now because the backend server isn't running yet.
 
 import imaplib
 import email
@@ -15,16 +15,17 @@ import requests
 import os
 import re
 import json
-from datetime import datetime
-
+from datetime import datetime, timezone
+import asyncio
+from google import genai
 # --------------
 # CONFIG
 # --------------
 
 EMAIL_HOST     = "imap.gmail.com"
 EMAIL_PORT     = 993
-EMAIL_USER     = os.getenv("EMAIL_USER", "rahul6768696867@gmail.com") #change this to your gmail
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "qtbd nueg cvml lrcq")   #see steps above to get this
+EMAIL_USER     = os.getenv("EMAIL_USER", "your@gmail.com") #change this to your gmail
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "xxxx xxxx xxxx xxxx") #see steps above to get this
 EMAIL_FOLDER   = "inbox" # folder/label to scrape
 UNREAD_ONLY    = True    # set False to scrape all emails
 
@@ -64,50 +65,28 @@ def get_body(msg):
         body = msg.get_payload(decode=True).decode(charset, errors="replace")
     return body.strip()
 
-
-def extract_location(text):
-    # Looks for phrases like 'at <place>' or 'location: <place>'.
-    # Can be improved later llm.
-    patterns = [
-        r"location[:\s]+(.+)",
-        r"\bat\b ([A-Z][^\n,\.]{3,40})",
-        r"venue[:\s]+(.+)",
-        r"place[:\s]+(.+)",
-        r"room[:\s]+(.+)",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-    return None
-
-
-def extract_date(text, fallback_date):
-    # Look for a date mentioned in the email body.
-    # If not found, use the email's sent date instead.
-    patterns = [
-        r"(\b\w+ \d{1,2},?\s*\d{4})", # January 15, 2025
-        r"(\d{1,2}/\d{1,2}/\d{2,4})", # 1/15/2025
-        r"(\d{4}-\d{2}-\d{2})",       # 2025-01-15
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            return match.group(1).strip()
-    return fallback_date
-
-
-def build_payload(msg):
+async def build_payload(msg, client):
     # Transform an email message into a dictionary for the backend.
     subject     = decode_mime_words(msg.get("Subject", "(no subject)"))
     sender      = decode_mime_words(msg.get("From", ""))
     message_id  = msg.get("Message-ID", "")
-    sent_date   = msg.get("Date", str(datetime.utcnow()))
+    sent_date   = msg.get("Date", str(datetime.now(timezone.utc)))
     body        = get_body(msg)
 
-    location    = extract_location(body)
-    event_date  = extract_date(body, sent_date)
-    has_pizza   = bool(re.search(r"\bpizza\b", body, re.IGNORECASE))
+    # Use LLM summarizer
+    try:
+        from utils.llmScraper import summarizer
+        summary = await summarizer(client, f"Subject: {subject}\n\n{body}")
+        location = summary.get("location")
+        event_date = summary.get("start_date_time", sent_date)
+        duration = summary.get("duration")
+        food = summary.get("food", "No")
+    except Exception as e:
+        print(f"  [!] LLM summarization failed: {e}")
+        location = None
+        event_date = sent_date
+        duration = None
+        food = "No"
 
     payload = {
         # Matches the backend schema defined in app.py
@@ -115,8 +94,8 @@ def build_payload(msg):
         "description": body,
         "start":       event_date,
         "location":    location,
-        "duration":    None,        # Backend expects this field
-        "food":        "Yes (Pizza)" if has_pizza else "No", # Backend uses 'food'
+        "duration":    duration,        # Backend expects this field
+        "food":        food, # Backend uses 'food'
         "hosting":     sender,
 
         # Additional metadata (same format as the Discord scraper)
@@ -181,7 +160,7 @@ def post_event(payload, url):
         return None
 
 
-def run():
+async def run():
     print("=" * 50)
     print("  Email Scraper — UPL Event Aggregator")
     print("=" * 50)
@@ -203,8 +182,17 @@ def run():
     # 3. Parse and POST each one
     print(f"\n[*] Sending to backend: {BACKEND_URL}\n")
     results = {"success": 0, "failed": 0}
+    
+    # Initialize Gemini client
+    try:
+        from config import GEMINI_API_KEY
+        client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception as e:
+        print(f"[!] Failed to initialize Gemini Client: {e}")
+        return
+
     for msg in messages:
-        payload = build_payload(msg)
+        payload = await build_payload(msg, client)
         # debug: print payload before sending
         print("-" * 40)
         print(f"  Name    : {payload['name'][:70]}")
@@ -233,4 +221,4 @@ def run():
 # --------------
 
 if __name__ == "__main__":
-    run()
+    asyncio.run(run())
