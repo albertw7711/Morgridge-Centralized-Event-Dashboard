@@ -20,6 +20,7 @@ If missing, use null.
 
 Schema:
 {
+  "is_event": boolean, // true ONLY if the email is announcing a specific upcoming event, workshop, or gathering. false for newsletters, receipts, account creations, etc.
   "name": string,
   "description": string,
   "location": string,
@@ -32,7 +33,7 @@ Schema:
     prompt = ASK_GEMINI + text
 
     response = await client.aio.models.generate_content(
-        model="gemini-3-flash-preview", contents=prompt
+        model="gemini-2.0-flash-lite-preview-02-05", contents=prompt # chose the model here
     )
 
     response_json = json.loads(response.text)
