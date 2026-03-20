@@ -89,6 +89,16 @@ def get_channels(server_id):
         print(e)
         return jsonify({"message": "Something went wrong, try again later"}), 500
 
+@app.delete("/events/<int:event_id>")
+def delete_event(event_id):
+    try:
+        deleted = db.delete_event(event_id)
+        if not deleted:
+            return jsonify({"message": "Event not found"}), 404
+        return jsonify({"message": "Event deleted"}), 200
+    except Exception as e:
+        print(e)
+        return jsonify({"message": "Something went wrong"}), 500
 
 @app.delete("/channels")
 def remove_channel():

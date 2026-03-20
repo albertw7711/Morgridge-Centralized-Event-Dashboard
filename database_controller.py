@@ -92,6 +92,18 @@ class database_controller:
         )
         con.commit()
         con.close()
+    
+    def delete_event(self, event_id):
+        con = self._connect()
+        cur = con.cursor()
+
+        cur.execute("DELETE FROM event WHERE id = ?", (event_id,))
+        hasChanged = cur.rowcount
+
+        con.commit()
+        con.close()
+
+        return hasChanged > 0
 
     def retrieve_events(self):
         con = self._connect()
