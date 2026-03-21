@@ -40,8 +40,8 @@ class Utility(commands.Cog):
             await ctx.send('You are already scrapping from that channel')
             return
         
-        json_addChannel = {'channelId': channelId}
-        json_addChannel = json.dumps(json_addChannel)
+        json_addChannel = {'server_id': ctx.guild.id, 'channel_id': channelId}
+        # json_addChannel = json.dumps(json_addChannel)
 
         try:
             # Write to DB/send to Flask backend
@@ -51,7 +51,9 @@ class Utility(commands.Cog):
 
                 async with session.post(FULL_URL, json=json_addChannel) as response:
                     if response.status == 201:
-                        pass
+                        # Now add it to memory
+                        CHANNEL_ID.add(channelId)
+                        await ctx.send('Successfully added channel to scrapping list.', delete_after=2)
                     else:
                         text = await response.text()
                         logger.warning(f"Backend error: {text}") 
@@ -60,9 +62,7 @@ class Utility(commands.Cog):
         except Exception as e:
             logger.warning(f"on_message error addChannel: {e}")
             
-        # Now add it to memory
-        CHANNEL_ID.add(channelId)
-        await ctx.send('Successfully added channel to scrapping list.', delete_after=2)
+        
 
 
     @commands.command(
@@ -82,8 +82,8 @@ class Utility(commands.Cog):
             await ctx.send('That channel was not being scrapped.', delete_after=2)
             return
         
-        json_delChannel = {'channelId': channelId}
-        json_delChannel = json.dumps(json_delChannel)
+        json_delChannel = {'server_id': ctx.guild.id, 'channel_id': channelId}
+        # json_delChannel = json.dumps(json_delChannel)
 
         try:
             # Write to DB/send to Flask backend
@@ -91,9 +91,11 @@ class Utility(commands.Cog):
                 BASE_URL = f"http://{BACKEND_URL}:{BACKEND_PORT}"
                 FULL_URL = f"{BASE_URL}/{BACKEND_ROUTE_DELCHANNEL}"
 
-                async with session.post(FULL_URL, json=json_delChannel) as response:
-                    if response.status == 201:
-                        pass
+                # async with session.post(FULL_URL, json=json_delChannel) as response:
+                async with session.request("DELETE", FULL_URL, json=json_delChannel) as response:
+                    if response.status == 200:
+                        CHANNEL_ID.discard(channelId)
+                        await ctx.send('Successfully discarded channel from scrapping list.')
                     else:
                         text = await response.text()
                         logger.warning(f"Backend error: {text}") 
@@ -102,8 +104,7 @@ class Utility(commands.Cog):
         except Exception as e:
             logger.warning(f"on_message error addChannel: {e}")
         
-        CHANNEL_ID.discard(channelId)
-        await ctx.send('Successfully discarded channel from scrapping list.')
+        
         
     @commands.command(
         help="!currentChannels - Lists all the channels that are currently being scrapped"
@@ -112,12 +113,12 @@ class Utility(commands.Cog):
     async def currentChannels(self, ctx):
         await ctx.message.delete()
 
-        if CHANNEL_ID is None:
+        if not CHANNEL_ID:
             await ctx.send('Currently no channels being scrapped', delete_after=2)
             return
                     
         # We shouldn't delete msg
-        await ctx.send(f"Channel IDs: {"\n".join([str(channel) for channel in CHANNEL_ID])}")
+        await ctx.send(f"Channel IDs: {", ".join([str(channel) for channel in CHANNEL_ID])}")
 
 
     # https://fallendeity.github.io/discord.py-masterclass/error-handling/#what-library-does-with-the-errors
@@ -130,6 +131,7 @@ class Utility(commands.Cog):
         elif isinstance(error, commands.MissingPermissions):
             await ctx.send("You do not have permission to add channels.", delete_after=5)
 
+    @removeChannel.error
     async def removeChannel_error(self, ctx, error):
         await ctx.message.delete()
         if isinstance(error, commands.BadArgument):
@@ -137,6 +139,7 @@ class Utility(commands.Cog):
         elif isinstance(error, commands.MissingPermissions):
             await ctx.send("You do not have permission to add channels.", delete_after=5)
 
+    @currentChannels.error
     async def currentChannels_error(self, ctx, error):
         await ctx.message.delete()
         if isinstance(error, commands.BadArgument):

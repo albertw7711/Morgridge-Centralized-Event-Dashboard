@@ -1,6 +1,9 @@
 from google import genai
 import json
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 def removeFirstAndLastLines(text):
     textSplit = text.split("\n")
@@ -12,11 +15,25 @@ def removeFirstAndLastLines(text):
 
 async def summarizer(client, text):
     ASK_GEMINI = """
+Ignore any casual conversation, jokes, or vague messsages.
+
+If the message is NOT a valid event, return:
+{
+  "name": null,
+  "description": null,
+  "location": null,
+  "start": null,
+  "duration": null,
+  "food": null
+}
+
+Otherwise, if a valid event:
 Extract information matching this schema.
 Return ONLY valid JSON.
 Do NOT include explanations.
 Do NOT wrap in markdown.
 If missing, use null.
+If you believe the message is not an event, simply use null for all fields.
 
 Schema:
 {
@@ -24,9 +41,9 @@ Schema:
   "name": string,
   "description": string,
   "location": string,
-  "start_date_time": string,
+  "start": string (STRICT ISO 8601 format: YYYY-MM-DDTHH:MM:SS),
   "duration": string,
-  "food": string
+  "food": boolean or null
 }
 """
 
@@ -36,6 +53,27 @@ Schema:
         model="gemini-2.0-flash-lite-preview-02-05", contents=prompt # chose the model here
     )
 
-    response_json = json.loads(response.text)
+    try:
 
-    return response_json
+        response_json = json.loads(response.text)
+
+        # https://www.w3schools.com/python/ref_func_isinstance.asp
+        if not isinstance(response_json, dict):
+            logger.warning(f"response_json is not isInstance of dictionary")
+            return None
+        
+        #if response_json["name"] is None and response_json["description"] is None and response_json["location"] is None and response_json["start"] is None and response_json["duration"] is None and response_json["food"] is None:
+        #    logger.debug(f"response_json only has None values")
+        #    return None
+        
+        # If value is None -> True, and if all values are None -> True, then all() returns true
+        if all(value is None for value in response_json.values()):
+            print("Made it here llm scraper no significant values")
+            logger.debug("response_json only has None values")
+            return None
+        
+        return response_json
+    except json.JSONDecodeError as e:
+        # response_json = {}
+        logger.warning(f"Failed to decode Gemini response: {e}")
+        return None
