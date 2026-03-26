@@ -1,0 +1,39 @@
+@import 'tailwindcss';
+
+:root {
+	--uwRed: #c5050c;
+	--uwRedDark: #9b0000;
+	--uwGrayDark: #282728;
+	--uwGrayLight: #e1e5e7;
+	--uwGrayLightest: #f3f3f3;
+	--uwWhite: #ffffff;
+	--uwBlack: #121212;
+	--uwRedLight: #f4b7b7;
+}
+
+@layer base {
+	html {
+		@apply bg-(--uwWhite);
+		@apply text-(--uwBlack);
+	}
+
+	button:hover {
+		@apply cursor-pointer;
+	}
+}
+
+@layer components {
+	header button:not(.pizza-filter-toggle),
+	header a {
+		@apply bg-(--uwRed);
+		@apply text-(--uwWhite);
+		@apply hover:bg-(--uwRedDark);
+	}
+}
+
+@layer utilities {
+	.red-white {
+		@apply bg-(--uwRed);
+		@apply text-(--uwWhite);
+	}
+}
