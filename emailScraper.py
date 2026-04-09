@@ -1,10 +1,13 @@
-# 1. Turn on IMAP in settings. in IMAP I did this . When messages are accessed with POP mark Gmail's copy as read
+# 1. Turn on IMAP in settings. When messages are accessed with POP mark Gmail's copy as read
 # 2. Turn on 2FA
 # 3. Go to https://myaccount.google.com/apppasswords
 # 4. Enter App name and get the 16 digit key
 # 5. Update everthing in the .env file
-# 6. Run python3 emailScraper.py
-# 7. The [✗] error is expected for now because the backend server isn't running yet.
+# 6. Run in this order:
+    # ssh -i "morgridge-dashbaord-root.pem" ubuntu@ec2-3-238-249-86.compute-1.amazonaws.com
+    # cd ~/morgridge/scrapping
+    # source .venv/bin/activate
+    # python3 emailScraper.py
 
 import imaplib
 import email
@@ -71,9 +74,10 @@ def extract_pdf_text(payload_bytes):
         print(f"  [!] Failed to extract PDF: {e}")
         return ""
 
-def get_body(msg):
-    # Get the plain text content from an email message
+def get_body_and_images(msg):
+    # Get the plain text content and images from an email message
     body = ""
+    images = []
     if msg.is_multipart():
         for part in msg.walk():
             content_type = part.get_content_type()
@@ -93,10 +97,20 @@ def get_body(msg):
                     if pdf_text.strip():
                         body += f"\n\n--- PDF Attachment ({filename}) ---\n{pdf_text}\n--------------------------\n"
 
+            # Parse Image attachments
+            if content_type.startswith("image/"):
+                img_bytes = part.get_payload(decode=True)
+                if img_bytes:
+                    print(f"  [*] Found Image attachment: {filename}")
+                    images.append({
+                        "mime_type": content_type,
+                        "bytes": img_bytes
+                    })
+
     else:
         charset = msg.get_content_charset() or "utf-8"
         body = msg.get_payload(decode=True).decode(charset, errors="replace")
-    return body.strip()
+    return body.strip(), images
 
 async def build_payload(msg, client):
     # Transform an email message into a dictionary for the backend.
@@ -104,21 +118,41 @@ async def build_payload(msg, client):
     sender      = decode_mime_words(msg.get("From", ""))
     message_id  = msg.get("Message-ID", "")
     sent_date   = msg.get("Date", str(datetime.now(timezone.utc)))
-    body        = get_body(msg)
+    body, images = get_body_and_images(msg)
 
     # Use LLM summarizer
     try:
         from utils.llmScraper import summarizer
-        summary = await summarizer(client, f"Subject: {subject}\n\n{body}")
+        summary = await summarizer(client, f"Subject: {subject}\n\n{body}", images=images)
         
+        if not summary:
+            return None
+
         # If the LLM determines this is not an event, discard it
         if not summary.get("is_event", True):
             return None
 
         location = summary.get("location")
-        event_date = summary.get("start_date_time", sent_date)
+
+        # Get ISO 8601 start date and validate
+        start_val = summary.get("start")
+        event_date = sent_date
+        if start_val:
+            try:
+                datetime.fromisoformat(start_val.replace("Z", "+00:00"))
+                event_date = start_val
+            except ValueError:
+                pass
+
+        # Give a fallback to duration if the LLM output was null
         duration = summary.get("duration")
-        food = summary.get("food", "No")
+        if not duration:
+            duration = "TBD"
+
+        # Food schema expects an integer in the database
+        food_val = summary.get("food")
+        food = 1 if food_val else 0
+
     except Exception as e:
         print(f"  [!] LLM summarization failed: {e}")
         return None
@@ -131,6 +165,11 @@ async def build_payload(msg, client):
         "location":    location,
         "duration":    duration,
         "food":        food,
+        # TODO: To support email image attachments, we must manually extract image bytes,
+        # upload them to a hosting service (e.g. AWS S3, Cloudinary, or backend endpoint)
+        # to generate a public URL, and then append that URL string here. 
+        # Unlike Discord which provides public attachment URLs automatically, 
+        # emails only contain raw bytes, so we leave this empty for now.
         "media":       [],
     }
     return payload
@@ -226,8 +265,8 @@ async def run():
         if not payload:
             print("-" * 40)
             print(f"  [!] Skipping: '{msg.get('Subject', '(no subject)')}' (Not an event)")
-            # Wait 4 seconds to avoid hitting Gemini Free Tier rate limits (15 RPM)
-            await asyncio.sleep(4.5)
+            # Wait 15 seconds to avoid hitting Gemini Free Tier rate limits (15 RPM)
+            await asyncio.sleep(15)
             continue
 
         # debug: print payload before sending
@@ -246,8 +285,8 @@ async def run():
             results["failed"] += 1
             
         # Wait to avoid Gemini API 429 Resource Exhausted errors
-        print("  [*] Sleeping for 4.5s for rate limit...")
-        await asyncio.sleep(4.5)
+        print("  [*] Sleeping for 15s for rate limit...")
+        await asyncio.sleep(15)
 
     # 4. Summary
     print("\n" + "=" * 50)

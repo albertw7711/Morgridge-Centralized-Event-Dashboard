@@ -1,19 +1,14 @@
 from google import genai
+from google.genai import types
 import json
-import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
 
-def removeFirstAndLastLines(text):
-    textSplit = text.split("\n")
+async def summarizer(client, text, images=None):
+    if images is None:
+        images = []
 
-    response = '\n'.join(textSplit[1:-1])
-
-    return response
-
-
-async def summarizer(client, text):
     ASK_GEMINI = """
 Ignore any casual conversation, jokes, or vague messsages.
 
@@ -28,7 +23,7 @@ If the message is NOT a valid event, return:
 }
 
 Otherwise, if a valid event:
-Extract information matching this schema.
+Extract information matching this schema. Read any provided images closely as they usually contain flyers with the most accurate event details!
 Return ONLY valid JSON.
 Do NOT include explanations.
 Do NOT wrap in markdown.
@@ -47,10 +42,14 @@ Schema:
 }
 """
 
-    prompt = ASK_GEMINI + text
+    prompt = [ASK_GEMINI + "\n\n" + text]
+    for img in images:
+        prompt.append(
+            types.Part.from_bytes(data=img["bytes"], mime_type=img["mime_type"])
+        )
 
     response = await client.aio.models.generate_content(
-        model="gemini-2.0-flash-lite-preview-02-05", contents=prompt # chose the model here
+        model="gemini-2.5-flash", contents=prompt # chose the model here
     )
 
     try:
