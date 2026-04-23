@@ -40,7 +40,7 @@ class Utility(commands.Cog):
             await ctx.send('You are already scrapping from that channel')
             return
         
-        json_addChannel = {'server_id': ctx.guild.id, 'channel_id': channelId}
+        json_addChannel = {'server_id': str(ctx.guild.id), 'channel_id': str(channelId)}
         # json_addChannel = json.dumps(json_addChannel)
 
         try:
@@ -82,7 +82,7 @@ class Utility(commands.Cog):
             await ctx.send('That channel was not being scrapped.', delete_after=2)
             return
         
-        json_delChannel = {'server_id': ctx.guild.id, 'channel_id': channelId}
+        json_delChannel = {'server_id': str(ctx.guild.id), 'channel_id': str(channelId)}
         # json_delChannel = json.dumps(json_delChannel)
 
         try:

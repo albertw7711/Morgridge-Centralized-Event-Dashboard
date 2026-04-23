@@ -67,7 +67,7 @@ Schema:
         
         # If value is None -> True, and if all values are None -> True, then all() returns true
         if all(value is None for value in response_json.values()):
-            print("Made it here llm scraper no significant values")
+            # print("Made it here llm scraper no significant values")
             logger.debug("response_json only has None values")
             return None
         
